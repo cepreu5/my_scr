@@ -379,17 +379,30 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
-                  SwitchListTile(
-                    title: const Text("Копирай снимката локално"),
-                    value: _shouldCopyImage,
-                    onChanged: (bool value) {
-                      // Важно: обновяваме и главното състояние, и това на панела
-                      setState(() => _shouldCopyImage = value);
-                      setModalState(() => _shouldCopyImage = value);
-                    },
-                    secondary: const Icon(Icons.storage),
-                  ),
+                  const SizedBox(height: 20), // Увери се, че тук има запетая
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.storage, color: Colors.grey),
+                          SizedBox(width: 12),
+                          Text(
+                            "Копирай локално",
+                            style: TextStyle(fontSize: 16),
+                          ),
+                        ],
+                      ),
+                      Switch(
+                        value: _shouldCopyImage,
+                        onChanged: (bool value) {
+                          // Провери дали тези функции са достъпни тук
+                          setState(() => _shouldCopyImage = value);
+                          setModalState(() => _shouldCopyImage = value);
+                        },
+                      ),
+                    ],
+                  ), // И тук сложи запетая, ако следва друг елемент
                 ],
               ),
             );
