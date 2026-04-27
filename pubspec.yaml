@@ -58,6 +58,7 @@ dependencies:
 
   url_launcher: ^6.3.0
   flutter_linkify: ^6.0.0
+  flutter_native_splash: ^2.4.7
 
 dev_dependencies:
   flutter_test:
@@ -111,3 +112,9 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_native_splash:
+  color: "#ffffff" # Или цвета на твоя фон (черното ще изчезне)
+  image: assets/logo.png # Ако имаш лого, разкоментирай това
+  android_12:
+    color: "#ffffff"
