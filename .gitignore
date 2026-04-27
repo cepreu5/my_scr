@@ -1,0 +1,25 @@
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# Android
+.gradle/
+local.properties
+**/GeneratedPluginRegistrant.java
+bin/
+gen/
+
+# Desktop/Web (Тези генерират МНОГО файлове)
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+macos/Flutter/ephemeral/
+.idea/
+.vscode/
+
+# Изрично изключваме всички build папки навсякъде
+**/build/**

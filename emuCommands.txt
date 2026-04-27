@@ -1,0 +1,41 @@
+adb install "C:\dev\Projects\Androd\my_scr\android\app\build\outputs\flutter-apk\app-debug.apk"
+
+cd C:\Users\Cepreu\AppData\Local\Android\Sdk\emulator
+
+emulator -avd Pixel_7
+
+emulator -accel-check
+
+sc query aehd
+
+adb devices
+
+== kill emulator
+taskkill /IM qemu-system-x86_64.exe /F
+taskkill /IM qemu-system-aarch64.exe /F
+taskkill /IM emulator.exe /F
+taskkill /IM qemu-system.exe /F
+
+Понякога емулаторът остава в lock състояние. Изтрий lock файловете:
+Отиди в:
+%USERPROFILE%\.android\avd\<името-на-авд>.avd\
+Изтрий файловете:
+hardware-qemu.ini.lock
+multiinstance.lock
+Те се създават, когато емулаторът е стартиран, и понякога не се изтриват.
+
+=== cold boot
+Спри напълно емулатора
+Увери се, че няма останали процеси, които държат AVD-то в увиснало състояние.
+Затвори прозореца на емулатора
+В PowerShell изпълни:
+taskkill /IM qemu-system-x86_64.exe /F
+taskkill /IM emulator.exe /F
+Провери с adb devices — списъкът трябва да е празен
+C:\Users\Cepreu\.android\avd\Pixel_4.avd\
+Изтрий файловете:
+quickbootChoice.ini
+snapshots.img
+папката snapshots/ (ако я има)
+emulator -avd Pixel_4 -no-snapshot-load
+Това принуждава емулатора да направи пълен cold boot
