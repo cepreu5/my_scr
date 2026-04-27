@@ -12,11 +12,29 @@ import 'package:photo_view/photo_view.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p; // добави и пакета 'path' за лесна работа с имена
 
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
+
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
 void main() async {
   // Този ред гарантира, че Flutter е заредил всичко нужно, 
   // преди да се опиташ да отвориш базата данни или Intent-ите.
   WidgetsFlutterBinding.ensureInitialized(); 
-  
+
+// 1. Инициализиране на часовите зони
+  tz.initializeTimeZones();
+
+  // 2. Настройки за Android
+  const AndroidInitializationSettings initializationSettingsAndroid =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  const InitializationSettings initializationSettings =
+      InitializationSettings(android: initializationSettingsAndroid);
+
+  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
   runApp(
     MaterialApp(
       home: const HomeScreen(), 
@@ -321,11 +339,31 @@ class _HomeScreenState extends State<HomeScreen> {
                             'isCompleted': item != null ? item['isCompleted'] : 0,
                           };
 
+                          // 1. Първо записваме/обновяваме в базата данни
+                          int savedId; // Променлива, в която ще пазим ID-то за алармата
+
                           if (item == null) {
-                            await dbHelper.insertItem(data);
+                            // При нов запис insertItem обикновено връща ID-то на новия ред
+                            savedId = await dbHelper.insertItem(data);
                           } else {
                             data['id'] = item['id']; // Добавяме ID за ъпдейта
                             await dbHelper.updateItem(data);
+                            savedId = item['id']; // Вече имаме ID-то от съществуващия елемент
+                          }
+
+                          // 2. СЛЕД като сме сигурни, че данните са в базата, планираме известието
+                          if (selectedDateTime != null) {
+                            await _scheduleNotification(
+                              savedId, // Уникалното ID на бележката
+                              _titleController.text.isEmpty ? "Напомняне" : _titleController.text,
+                              _contentController.text,
+                              selectedDateTime!,
+                            );
+                            print("Напомнянето е настроено за: $selectedDateTime с ID: $savedId");
+                          } else if (item != null) {
+                            // Ако редактираме и потребителят е премахнал датата, 
+                            // е добра идея да изтрием старото известие
+                            await flutterLocalNotificationsPlugin.cancel(savedId);
                           }
 
                           // Изчистване и затваряне
@@ -577,4 +615,27 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
+
+Future<void> _scheduleNotification(int id, String title, String body, DateTime scheduledDate) async {
+  // Проверка дали времето не е в миналото
+  if (scheduledDate.isBefore(DateTime.now())) return;
+
+  await flutterLocalNotificationsPlugin.zonedSchedule(
+    id,
+    title,
+    body,
+    tz.TZDateTime.from(scheduledDate, tz.local),
+    const NotificationDetails(
+      android: AndroidNotificationDetails(
+        'reminders_channel',
+        'Напомняния',
+        importance: Importance.max,
+        priority: Priority.high,
+      ),
+    ),
+    androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    uiLocalNotificationDateInterpretation:
+        UILocalNotificationDateInterpretation.absoluteTime,
+  );
 }

@@ -1,5 +1,7 @@
 adb install "C:\dev\Projects\Androd\my_scr\android\app\build\outputs\flutter-apk\app-debug.apk"
 
+git reset --hard 25d68b0
+
 cd C:\Users\Cepreu\AppData\Local\Android\Sdk\emulator
 
 emulator -avd Pixel_7
