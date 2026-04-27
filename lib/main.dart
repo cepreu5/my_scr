@@ -207,7 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _intentDataStreamSubscription = ReceiveSharingIntent.instance.getMediaStream().listen((List<SharedMediaFile> files) {
       _handleSharedFiles(files);
     }, onError: (err) {
-      print("Грешка при стрийм:  $err");
+      print("Грешка при стрийм: $err");
     });
 
     // Слушател 2: За чист текст/линкове (Ако не минават през горния метод)
