@@ -3,6 +3,7 @@ import 'dart:io';
 import 'db_helper.dart';
 
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_linkify/flutter_linkify.dart';
 
 import 'dart:async';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
@@ -532,33 +533,38 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showTextDetails(Map<String, dynamic> item) {
-    // Проверяваме дали съдържанието е линк
     final String content = item['content'] ?? "";
-    final bool isLink = content.startsWith("http://") || content.startsWith("https://");
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(item['title']),
+        title: Text(item['title'] ?? "Детайли"),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(content),
-              if (isLink) ...[
-                const SizedBox(height: 20),
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.open_in_browser),
-                  label: const Text("Отвори линка"),
-                  onPressed: () async {
-                    final Uri url = Uri.parse(content);
-                    if (await canLaunchUrl(url)) {
-                      await launchUrl(url, mode: LaunchMode.externalApplication);
+              SelectableLinkify(
+                text: content,
+                onOpen: (link) async {
+                  final Uri url = Uri.parse(link.url);
+                  if (await canLaunchUrl(url)) {
+                    await launchUrl(url, mode: LaunchMode.externalApplication);
+                  } else {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Неуспешно отваряне на линка")),
+                      );
                     }
-                  },
+                  }
+                },
+                style: const TextStyle(fontSize: 16),
+                linkStyle: const TextStyle(
+                  color: Colors.blue,
+                  fontWeight: FontWeight.bold,
+                  decoration: TextDecoration.underline,
                 ),
-              ],
+              ),
             ],
           ),
         ),
@@ -571,5 +577,4 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
 }
