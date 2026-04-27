@@ -399,7 +399,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
           // В build метода на HomeScreen -> AppBar
           appBar: AppBar(
-            title: const Text('My Screenshots'),
+            title: const Text('My memo'),
             actions: [
               IconButton(
                 icon: const Icon(Icons.search),

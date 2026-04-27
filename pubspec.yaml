@@ -1,4 +1,4 @@
-name: My_screenshots
+name: My_memo
 description: "Приложение за организиране на бележки, задачи и screensshot-и."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
