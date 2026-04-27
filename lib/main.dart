@@ -221,6 +221,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _refreshItems();
+    _requestPermissions();
 
     // Слуша за нови споделяния (когато приложението е в бекграунд)
     _intentDataStreamSubscription = ReceiveSharingIntent.instance.getMediaStream().listen((List<SharedMediaFile> files) {
@@ -253,6 +254,12 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _requestPermissions() {
+    flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+  }
+
   void _showAddForm(BuildContext context, {Map<String, dynamic>? item}) {
     // 1. Инициализация на данните спрямо това дали е редакция или нов запис
     if (item != null) {
@@ -281,7 +288,7 @@ class _HomeScreenState extends State<HomeScreen> {
             return Padding(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(context).viewInsets.bottom,
-                left: 20, right: 20, top: 20,
+                left: 10, right: 10, top: 10,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -305,6 +312,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       TextButton.icon(
                         onPressed: () async {
+                          print("!!!!!!!!!!!!!!!! БУТОНЪТ РАБОТИ !!!!!!!!!!!!!!!!");
                           // Извикваме оригиналната функция и обновяваме състоянието на панела
                           await _pickDateTime(context);
                           setModalState(() {}); 
@@ -313,7 +321,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         label: Text(
                           selectedDateTime == null 
                             ? 'Напомняне' 
-                            : '${selectedDateTime!.day}.${selectedDateTime!.month} в ${selectedDateTime!.hour}:${selectedDateTime!.minute.toString().padLeft(2, '0')}',
+                            : '${selectedDateTime!.day}.${selectedDateTime!.month.toString().padLeft(2, '0')} в ${selectedDateTime!.hour}:${selectedDateTime!.minute.toString().padLeft(2, '0')}',
                           style: TextStyle(color: selectedDateTime != null ? Colors.green : Colors.blue),
                         ),
                       ),
@@ -352,12 +360,21 @@ class _HomeScreenState extends State<HomeScreen> {
                           }
 
                           // 2. СЛЕД като сме сигурни, че данните са в базата, планираме известието
+                          print("selectedDateTime е: $selectedDateTime с ID: $savedId");
                           if (selectedDateTime != null) {
-                            await _scheduleNotification(
+                              await _scheduleNotification(
                               savedId, // Уникалното ID на бележката
                               _titleController.text.isEmpty ? "Напомняне" : _titleController.text,
                               _contentController.text,
                               selectedDateTime!,
+                              // ТЕСТОВ КОД (сложи го на мястото на _scheduleNotification за проба)
+                              // await flutterLocalNotificationsPlugin.show(
+                              //   999,
+                              //   "Тест",
+                              //   "Ако виждаш това, известията работят!",
+                              //   const NotificationDetails(
+                              //     android: AndroidNotificationDetails('test_channel', 'Test'),
+                              //   ),
                             );
                             print("Напомнянето е настроено за: $selectedDateTime с ID: $savedId");
                           } else if (item != null) {
@@ -630,25 +647,57 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-Future<void> _scheduleNotification(int id, String title, String body, DateTime scheduledDate) async {
-  // Проверка дали времето не е в миналото
-  if (scheduledDate.isBefore(DateTime.now())) return;
+// Future<void> _scheduleNotification(int id, String title, String body, DateTime scheduledDate) async {
+//   // Проверка дали времето не е в миналото
+//   if (scheduledDate.isBefore(DateTime.now())) {
+//     print("Грешка: Избраното време е в миналото!");
+//     return;
+//   }
 
-  await flutterLocalNotificationsPlugin.zonedSchedule(
-    id,
-    title,
-    body,
-    tz.TZDateTime.from(scheduledDate, tz.local),
-    const NotificationDetails(
-      android: AndroidNotificationDetails(
-        'reminders_channel',
-        'Напомняния',
-        importance: Importance.max,
-        priority: Priority.high,
+//   await flutterLocalNotificationsPlugin.zonedSchedule(
+//     id,
+//     title,
+//     body,
+//     tz.TZDateTime.from(scheduledDate, tz.local),
+//     const NotificationDetails(
+//       android: AndroidNotificationDetails(
+//         'reminders_channel',
+//         'Напомняния',
+//         importance: Importance.max,
+//         priority: Priority.high,
+//       ),
+//     ),
+//     androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+//     uiLocalNotificationDateInterpretation:
+//         UILocalNotificationDateInterpretation.absoluteTime,
+//   );
+// }
+
+Future<void> _scheduleNotification(int id, String title, String body, DateTime scheduledDate) async {
+  try {
+    print("Стъпка 1: Извиквам планиране за $scheduledDate");
+    
+    await flutterLocalNotificationsPlugin.zonedSchedule(
+      id,
+      title,
+      body,
+      tz.TZDateTime.from(scheduledDate, tz.local),
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'reminder_channel',
+          'Напомняния',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
       ),
-    ),
-    androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-    uiLocalNotificationDateInterpretation:
-        UILocalNotificationDateInterpretation.absoluteTime,
-  );
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+    
+    print("Стъпка 2: Планирането приключи успешно!"); // Ако видиш това, значи работи
+  } catch (e) {
+    // ТУК ЩЕ ВИДИШ ИСТИНСКАТА ГРЕШКА В КОНЗОЛАТА
+    print("ГРЕШКА ПРИ ПЛАНИРАНЕ: $e");
+  }
 }
