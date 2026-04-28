@@ -162,7 +162,7 @@ class BusinessOrganizerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Бизнес органайзер',
+      title: 'My memo',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true, // Използваме модерния дизайн на Google
@@ -180,42 +180,15 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Примерен списък с данни (по-късно ще идват от базата данни)
   List<Map<String, dynamic>> _items = [];
+  File? _selectedImage;
   DateTime? selectedDateTime;
   bool _isLoading = true; // Индикатор за зареждане
-
   final dbHelper = DatabaseHelper();
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
-  File? _selectedImage;
-
   late StreamSubscription _intentDataStreamSubscription;
-
-  void _handleSharedFiles(List<SharedMediaFile> files) {
-    if (files.isEmpty) return;
-
-    final file = files.first;
-
-    setState(() {
-      // Проверяваме типа според библиотеката
-      if (file.type == SharedMediaType.text || file.type == SharedMediaType.url) {
-        _titleController.text = "Споделен текст/линк";
-        
-        // В новите версии ТЕКСТЪТ е записан директно в .path
-        _contentController.text = file.path; 
-        
-        _selectedImage = null; // Уверяваме се, че няма стара снимка
-      } else if (file.type == SharedMediaType.image) {
-        _titleController.text = "Споделена снимка";
-        _selectedImage = File(file.path); // Тук .path е истински път до файл
-        _contentController.clear();
-      }
-    });
-
-    // Важно: Подаваме context, за да се отвори панела
-    _showAddForm(context);
-  }
+  final int _maxRows = 10;
 
   @override
   void initState() {
@@ -223,24 +196,19 @@ class _HomeScreenState extends State<HomeScreen> {
     _refreshItems();
     _requestPermissions();
 
-    // Слуша за нови споделяния (когато приложението е в бекграунд)
+    // 1. Слушател за нови споделяния (докато приложението работи или е в бекграунд)
     _intentDataStreamSubscription = ReceiveSharingIntent.instance.getMediaStream().listen((List<SharedMediaFile> files) {
-      _handleSharedFiles(files);
+      _processSharedData(files);
     }, onError: (err) {
       print("Грешка при стрийм: $err");
     });
 
-    // Слушател 2: За чист текст/линкове (Ако не минават през горния метод)
-    ReceiveSharingIntent.instance.getInitialMedia().then((List<SharedMediaFile> files) {
-        if (files.isNotEmpty) {
-          _handleSharedFiles(files);
-        }
-      });
-
-    // Проверява за споделяне, с което е стартирано приложението (студен старт)
+    // 2. Проверка за споделяне при "студен старт" (когато приложението е било напълно затворено)
     ReceiveSharingIntent.instance.getInitialMedia().then((List<SharedMediaFile> files) {
       if (files.isNotEmpty) {
-        _handleSharedFiles(files);
+        _processSharedData(files);
+        // Изчистваме намерението, за да не се задейства пак при рестарт на екрана
+        ReceiveSharingIntent.instance.reset(); 
       }
     });
   }
@@ -258,6 +226,153 @@ class _HomeScreenState extends State<HomeScreen> {
     flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
+  }
+
+  Widget build(BuildContext context) {
+    return Scaffold(
+      // В build метода на HomeScreen -> AppBar
+      appBar: AppBar(
+        title: const Text('My memo'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              showSearch(
+                context: context,
+                delegate: NoteSearchDelegate(
+                  items: _items,
+                  onSelect: (item) {
+                    // Логика за отваряне на детайлите на избраната бележка
+                    if (item['imagePath'] != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ImageDetailScreen(
+                            imagePath: item['imagePath'],
+                            title: item['title'],
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator()) // Върти се, докато чакаме базата
+          : _items.isEmpty
+              ? const Center(child: Text('Няма записи. Натиснете + за начало.'))
+              : ListView.builder(
+                  itemCount: _items.length,
+                  itemBuilder: (context, index) {
+                    final item = _items[index];
+                    return Dismissible(
+                      key: Key(item['id'].toString()), // Уникален ключ за всеки елемент
+                      direction: DismissDirection.startToEnd, // Плъзгане само от ляво на дясно
+                      background: Container(
+                        color: Colors.red,
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      onDismissed: (direction) async {
+                        final itemCopy = Map<String, dynamic>.from(item); // Копие за Undo функционалност
+                        final removedIndex = index;
+                        // 1. Първо актуализираме UI (премахваме го от списъка)
+                        setState(() {
+                          _items.removeAt(index);
+                        });
+                        // 2. Изтриваме от базата данни
+                        await dbHelper.deleteItem(itemCopy['id']);
+                        // ПРОВЕРКА ЗА ASYNC GAP: Тук context може вече да не е валиден
+                        if (!mounted) return;
+                        // 3. Показваме съобщението
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text("${itemCopy['title']} е изтрито"),
+                            action: SnackBarAction(
+                              label: "UNDO",
+                              onPressed: () async {
+                                // Логика за връщане (Undo)
+                                await dbHelper.insertItem(itemCopy);
+                                _refreshItems(); // Презареждаме списъка
+                              },
+                            ),
+                          ),
+                        );
+                        // 4. Чак накрая трием физическия файл (ако е необходимо)
+                        if (itemCopy['imagePath'] != null && itemCopy['isLocalCopy'] == 1) {
+                          final file = File(itemCopy['imagePath']);
+                          if (await file.exists()) {
+                            await file.delete();
+                          }
+                        }
+                      },
+                      child: Card(
+                        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        child: ListTile(
+                          leading: item['imagePath'] != null
+                              ? Hero(
+                                  tag: item['imagePath'],
+                                  child: Image.file(File(item['imagePath']), width: 50, height: 50, fit: BoxFit.cover),
+                                )
+                              : Icon(item['isCompleted'] == 1 ? Icons.check_circle : Icons.note),
+                          title: Text(
+                            item['title'],
+                            maxLines: 1, // Обикновено заглавието е на 1 ред
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            item['content'],
+                            maxLines: _maxRows, // Използваме параметър тук
+                            overflow: TextOverflow.ellipsis, // Добавя "..." ако текстът е по-дълъг
+                          ),
+                          onTap: () {
+                            if (item['imagePath'] != null) {
+                              // 1. Ако има снимка, отиваме на екрана за голям преглед
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ImageDetailScreen(
+                                    imagePath: item['imagePath'],
+                                    title: item['title'],
+                                  ),
+                                ),
+                              );
+                            } else {
+                              // 2. Ако няма снимка, показваме пълния текст в диалогов прозорец
+                              _showTextDetails(item);
+                            }
+                          },
+                          onLongPress: () => _showAddForm(context, item: item),
+                          trailing: Checkbox(
+                            value: item['isCompleted'] == 1,
+                            onChanged: (bool? value) async {
+                              // Обновяваме в базата данни
+                              await dbHelper.database.then((db) {
+                                db.update(
+                                  'items',
+                                  {'isCompleted': value! ? 1 : 0},
+                                  where: 'id = ?',
+                                  whereArgs: [item['id']],
+                                );
+                              });
+                              _refreshItems(); // Презареждаме списъка
+                            },
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddForm(context),
+        child: const Icon(Icons.add),
+      ),
+    );
   }
 
   void _showAddForm(BuildContext context, {Map<String, dynamic>? item}) {
@@ -312,7 +427,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       TextButton.icon(
                         onPressed: () async {
-                          print("!!!!!!!!!!!!!!!! БУТОНЪТ РАБОТИ !!!!!!!!!!!!!!!!");
                           // Извикваме оригиналната функция и обновяваме състоянието на панела
                           await _pickDateTime(context);
                           setModalState(() {}); 
@@ -328,7 +442,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       ElevatedButton(
                         onPressed: () async {
                           String? finalPath = item?['imagePath']; // Запазваме стария път по подразбиране
-                          
                           // Логика за снимката (само ако е променена или е нова)
                           if (_selectedImage != null && _selectedImage!.path != item?['imagePath']) {
                             if (_shouldCopyImage) {
@@ -337,7 +450,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               finalPath = _selectedImage!.path;
                             }
                           }
-
                           Map<String, dynamic> data = {
                             'title': _titleController.text,
                             'content': _contentController.text,
@@ -346,10 +458,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             'reminderDate': selectedDateTime?.toIso8601String(),
                             'isCompleted': item != null ? item['isCompleted'] : 0,
                           };
-
                           // 1. Първо записваме/обновяваме в базата данни
                           int savedId; // Променлива, в която ще пазим ID-то за алармата
-
                           if (item == null) {
                             // При нов запис insertItem обикновено връща ID-то на новия ред
                             savedId = await dbHelper.insertItem(data);
@@ -358,7 +468,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             await dbHelper.updateItem(data);
                             savedId = item['id']; // Вече имаме ID-то от съществуващия елемент
                           }
-
                           // 2. СЛЕД като сме сигурни, че данните са в базата, планираме известието
                           print("selectedDateTime е: $selectedDateTime с ID: $savedId");
                           if (selectedDateTime != null) {
@@ -382,14 +491,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             // е добра идея да изтрием старото известие
                             await flutterLocalNotificationsPlugin.cancel(savedId);
                           }
-
                           // Изчистване и затваряне
                           _titleController.clear();
                           _contentController.clear();
                           _selectedImage = null;
                           selectedDateTime = null;
-                          
-                          _refreshItems();
+                                                    _refreshItems();
                           Navigator.pop(context);
                         },
                         child: Text(item == null ? 'Запази' : 'Обнови'),
@@ -419,7 +526,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                       ),
                     ],
-                  ), // И тук сложи запетая, ако следва друг елемент
+                  ),
                 ],
               ),
             );
@@ -463,134 +570,23 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-          // В build метода на HomeScreen -> AppBar
-          appBar: AppBar(
-            title: const Text('My memo'),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.search),
-                onPressed: () {
-                  showSearch(
-                    context: context,
-                    delegate: NoteSearchDelegate(
-                      items: _items,
-                      onSelect: (item) {
-                        // Логика за отваряне на детайлите на избраната бележка
-                        if (item['imagePath'] != null) {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ImageDetailScreen(
-                                imagePath: item['imagePath'],
-                                title: item['title'],
-                              ),
-                            ),
-                          );
-                        }
-                      },
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator()) // Върти се, докато чакаме базата
-          : _items.isEmpty
-              ? const Center(child: Text('Няма записи. Натиснете + за начало.'))
-              : ListView.builder(
-                  itemCount: _items.length,
-                  itemBuilder: (context, index) {
-                    final item = _items[index];
-                    return Dismissible(
-                      key: Key(item['id'].toString()), // Уникален ключ за всеки елемент
-                      direction: DismissDirection.endToStart, // Плъзгане само отдясно наляво
-                      background: Container(
-                        color: Colors.red,
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: const Icon(Icons.delete, color: Colors.white),
-                      ),
-                      onDismissed: (direction) async {
-                        // 1. Изтриваме от базата данни
-                        await dbHelper.deleteItem(item['id']);
-                        // 2. Премахваме от локалния списък, за да се обнови UI веднага
-                        setState(() {
-                          _items.removeAt(index);
-                        });
-                        // 3. Показваме съобщение с опция за връщане (Undo) - по желание
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text("${item['title']} е изтрито")),
-                        );
-                        if (item['imagePath'] != null && item['isLocalCopy'] == 1) {
-                          final file = File(item['imagePath']);
-                          if (await file.exists()) {
-                            await file.delete();
-                          }
-                        }
-                      },
-                      child: Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        child: ListTile(
-                          leading: item['imagePath'] != null
-                              ? Hero(
-                                  tag: item['imagePath'],
-                                  child: Image.file(File(item['imagePath']), width: 50, height: 50, fit: BoxFit.cover),
-                                )
-                              : Icon(item['isCompleted'] == 1 ? Icons.check_circle : Icons.note),
-                          title: Text(item['title']),
-                          subtitle: Text(item['content']),
-                          onTap: () {
-                            if (item['imagePath'] != null) {
-                              // 1. Ако има снимка, отиваме на екрана за голям преглед
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => ImageDetailScreen(
-                                    imagePath: item['imagePath'],
-                                    title: item['title'],
-                                  ),
-                                ),
-                              );
-                            } else {
-                              // 2. Ако няма снимка, показваме пълния текст в диалогов прозорец
-                              _showTextDetails(item);
-                            }
-                          },
-                          onLongPress: () => _showAddForm(context, item: item),
-                          trailing: Checkbox(
-                            value: item['isCompleted'] == 1,
-                            onChanged: (bool? value) async {
-                              // Обновяваме в базата данни
-                              await dbHelper.database.then((db) {
-                                db.update(
-                                  'items',
-                                  {'isCompleted': value! ? 1 : 0},
-                                  where: 'id = ?',
-                                  whereArgs: [item['id']],
-                                );
-                              });
-                              _refreshItems(); // Презареждаме списъка
-                            },
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddForm(context),
-        child: const Icon(Icons.add),
-      ),
-    );
+  void _processSharedData(List<SharedMediaFile> files) {
+    if (files.isEmpty) return;
+
+    final sharedFile = files.first;
+
+    // Проверяваме типа на споделеното съдържание
+    if (sharedFile.type == SharedMediaType.text || sharedFile.type == SharedMediaType.url) {
+      // ОБРАБОТКА НА ТЕКСТ/ЛИНК
+      _titleController.text = "Споделен линк/текст";
+      _contentController.text = sharedFile.path; // Текстът се съдържа в .path
+    } else {
+      // ОБРАБОТКА НА ФАЙЛ (Снимка/Видео)
+      _titleController.text = "Споделен файл";
+      _contentController.text = "Път до файла: ${sharedFile.path}";
+      // Тук можеш да заредиш снимката в твоя _selectedImage
     }
 
-  void _handleSharedText(String text) {
-    // Тук автоматично отваряме формата с попълнен текст
-    _titleController.text = "Споделен текст";
-    _contentController.text = text;
     _showAddForm(context);
   }
 
@@ -600,48 +596,127 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  // void _showTextDetails(Map<String, dynamic> item) {
+  //   final String content = item['content'] ?? "";
+  //   showDialog(
+  //     context: context,
+  //     builder: (context) => AlertDialog(
+  //       title: Text(item['title'] ?? "Детайли"),
+  //       content: SingleChildScrollView(
+  //         child: Column(
+  //           mainAxisSize: MainAxisSize.min,
+  //           crossAxisAlignment: CrossAxisAlignment.start,
+  //           children: [
+  //             SelectableLinkify(
+  //               text: content,
+  //               onOpen: (link) async {
+  //                 final Uri url = Uri.parse(link.url);
+  //                 if (await canLaunchUrl(url)) {
+  //                   await launchUrl(url, mode: LaunchMode.externalApplication);
+  //                 } else {
+  //                   if (mounted) {
+  //                     ScaffoldMessenger.of(context).showSnackBar(
+  //                       const SnackBar(content: Text("Неуспешно отваряне на линка")),
+  //                     );
+  //                   }
+  //                 }
+  //               },
+  //               style: const TextStyle(fontSize: 16),
+  //               linkStyle: const TextStyle(
+  //                 color: Colors.blue,
+  //                 fontWeight: FontWeight.bold,
+  //                 decoration: TextDecoration.underline,
+  //               ),
+  //             ),
+  //           ],
+  //         ),
+  //       ),
+  //       actions: [
+  //         TextButton(
+  //           onPressed: () => Navigator.pop(context),
+  //           child: const Text("Затвори"),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
+
   void _showTextDetails(Map<String, dynamic> item) {
     final String content = item['content'] ?? "";
+    final String title = item['title'] ?? "Детайли";
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(item['title'] ?? "Детайли"),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SelectableLinkify(
-                text: content,
-                onOpen: (link) async {
-                  final Uri url = Uri.parse(link.url);
-                  if (await canLaunchUrl(url)) {
-                    await launchUrl(url, mode: LaunchMode.externalApplication);
-                  } else {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Неуспешно отваряне на линка")),
-                      );
-                    }
-                  }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          appBar: AppBar(
+            title: const Text("Детайли"),
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => Navigator.pop(context),
+            ),
+            actions: [
+              // Бутон за Редактиране
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(context); // Затваряме детайлите
+                  _showAddForm(context, item: item); // Отваряме редактора
                 },
-                style: const TextStyle(fontSize: 16),
-                linkStyle: const TextStyle(
-                  color: Colors.blue,
-                  fontWeight: FontWeight.bold,
-                  decoration: TextDecoration.underline,
-                ),
+                icon: const Icon(Icons.edit, color: Colors.white),
+                label: const Text("РЕДАКТИРАЙ", style: TextStyle(color: Colors.white)),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Затвори"),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Заглавието в поле с малко по-тъмен фон
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).brightness == Brightness.light
+                        ? Colors.grey[200]
+                        : Colors.grey[800],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // Основното съдържание с активни линкове
+                SelectableLinkify(
+                  text: content,
+                  onOpen: (link) async {
+                    final Uri url = Uri.parse(link.url);
+                    if (await canLaunchUrl(url)) {
+                      await launchUrl(url, mode: LaunchMode.externalApplication);
+                    } else {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Неуспешно отваряне на линка")),
+                        );
+                      }
+                    }
+                  },
+                  style: const TextStyle(fontSize: 17, height: 1.5),
+                  linkStyle: const TextStyle(
+                    color: Colors.blue,
+                    fontWeight: FontWeight.bold,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -653,7 +728,6 @@ class _HomeScreenState extends State<HomeScreen> {
 //     print("Грешка: Избраното време е в миналото!");
 //     return;
 //   }
-
 //   await flutterLocalNotificationsPlugin.zonedSchedule(
 //     id,
 //     title,
