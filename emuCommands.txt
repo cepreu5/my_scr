@@ -1,10 +1,21 @@
 adb install "C:\dev\Projects\Androd\my_scr\android\app\build\outputs\flutter-apk\app-debug.apk"
+adb uninstall com.example.my_scr
+adb shell pm list packages | findstr "my_scr"
+да го накараш да се отвори през терминала:
+adb shell monkey -p com.example.my_scr -c android.intent.category.LAUNCHER 1
+
+Вместо да се бориш с пътища към APK-та, просто плъзни и пусни (Drag & Drop) файла app-debug.apk директно върху екрана на емулатора.
+
+билд, който включва всички архитектури:
+flutter build apk --debug --allow-multidex
+Или кажи му изрично да поддържа всичко:
+flutter build apk --debug --target-platform android-x64
 
 git reset --hard 25d68b0
 
 cd C:\Users\Cepreu\AppData\Local\Android\Sdk\emulator
 
-emulator -avd Pixel_7
+emulator -avd Pixel_4
 
 emulator -accel-check
 

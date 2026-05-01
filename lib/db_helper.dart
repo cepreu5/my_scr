@@ -2,7 +2,6 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
 class DatabaseHelper {
-  // Сингълтън модел - гарантира, че има само една връзка към БД
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   static Database? _database;
 
@@ -19,7 +18,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'business_organizer.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 2, // Вдигаме версията заради новите полета
       onCreate: (db, version) {
         return db.execute('''
           CREATE TABLE items(
@@ -28,10 +27,19 @@ class DatabaseHelper {
             content TEXT,
             imagePath TEXT,
             isLocalCopy INTEGER, 
-            reminderDate TEXT,
+            reminderTime TEXT, 
+            color INTEGER,
             isCompleted INTEGER
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) {
+        // Тъй като ще преинсталирате, това е просто за застраховка
+        if (oldVersion < 2) {
+          db.execute("ALTER TABLE items ADD COLUMN color INTEGER");
+          // Ако името е било различно, тук е мястото за миграция, 
+          // но преинсталацията е най-сигурният вариант.
+        }
       },
     );
   }
@@ -46,7 +54,6 @@ class DatabaseHelper {
     return await db.query('items', orderBy: "id DESC");
   }
 
-  // ВЕЧЕ Е КОРЕКТИРАН:
   Future<int> deleteItem(int id) async {
     Database db = await database; 
     return await db.delete('items', where: 'id = ?', whereArgs: [id]);
@@ -58,3 +65,9 @@ class DatabaseHelper {
     return await db.update('items', row, where: 'id = ?', whereArgs: [id]);
   }
 }
+
+// Future<List<Map<String, dynamic>>> getItems() async {
+//   final db = await instance.database;
+//   // Връщаме всички редове от таблица 'items'
+//   return await db.query('items'); 
+// }
