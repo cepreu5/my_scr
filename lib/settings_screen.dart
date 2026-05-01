@@ -9,8 +9,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  int _appBgColor = Colors.white.value;
-  int _defaultNoteColor = Colors.white.value;
+  int _appBgColor = Colors.white.toARGB32();
+  int _defaultNoteColor = Colors.white.toARGB32();
 
   final List<Color> _availableColors = [
     Colors.white,
@@ -22,6 +22,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     const Color(0xFFF8BBD0), // Светло розово
     const Color(0xFFE1BEE7), // Светло лилаво
     const Color(0xFFD7CCC8), // Светло кафяво
+    Colors.black,
   ];
 
   @override
@@ -33,8 +34,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _appBgColor = prefs.getInt('bg_color') ?? Colors.white.value;
-      _defaultNoteColor = prefs.getInt('default_note_color') ?? Colors.white.value;
+      _appBgColor = prefs.getInt('bg_color') ?? Colors.white.toARGB32();
+      _defaultNoteColor = prefs.getInt('default_note_color') ?? Colors.white.toARGB32();
     });
   }
 
@@ -57,14 +58,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 10),
           _buildColorPicker(
             selectedColor: _appBgColor,
-            onColorSelected: (color) => _saveSetting('bg_color', color.value),
+            onColorSelected: (color) => _saveSetting('bg_color', color.toARGB32()),
           ),
           const Divider(height: 40),
           _buildSectionTitle('Цвят на бележките по подразбиране'),
           const SizedBox(height: 10),
           _buildColorPicker(
             selectedColor: _defaultNoteColor,
-            onColorSelected: (color) => _saveSetting('default_note_color', color.value),
+            onColorSelected: (color) => _saveSetting('default_note_color', color.toARGB32()),
           ),
         ],
       ),
@@ -83,7 +84,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       spacing: 10,
       runSpacing: 10,
       children: _availableColors.map((color) {
-        bool isSelected = selectedColor == color.value;
+        bool isSelected = selectedColor == color.toARGB32();
         return GestureDetector(
           onTap: () => onColorSelected(color),
           child: Container(
@@ -96,7 +97,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: isSelected ? Colors.blue : Colors.black12,
                 width: isSelected ? 3 : 1,
               ),
-              boxShadow: isSelected ? [BoxShadow(color: Colors.blue.withOpacity(0.3), blurRadius: 8)] : null,
+              boxShadow: isSelected ? [BoxShadow(color: Colors.blue.withValues(alpha: 0.3), blurRadius: 8)] : null,
             ),
             child: isSelected ? const Icon(Icons.check, color: Colors.blue) : null,
           ),

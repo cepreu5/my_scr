@@ -145,7 +145,7 @@ class _MainListScreenState extends State<MainListScreen> {
       backgroundColor: Color(_appBackgroundColor),
       appBar: AppBar(
         titleSpacing: 0,
-        backgroundColor: Color(_appBackgroundColor).withOpacity(0.9),
+        backgroundColor: Color(_appBackgroundColor).withValues(alpha: 0.9),
         title: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8.0),
           child: TextField(
@@ -155,7 +155,7 @@ class _MainListScreenState extends State<MainListScreen> {
               hintText: 'Търсене...',
               prefixIcon: const Icon(Icons.search),
               filled: true,
-              fillColor: Colors.black.withOpacity(0.05),
+              fillColor: Colors.black.withValues(alpha: 0.05),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(30),
                 borderSide: BorderSide.none,

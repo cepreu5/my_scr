@@ -364,7 +364,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.8), 
+        color: Colors.white.withValues(alpha: 0.8), 
         border: const Border(top: BorderSide(color: Colors.black12))
       ),
       child: Column(
