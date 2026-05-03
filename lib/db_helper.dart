@@ -1,11 +1,13 @@
-import 'package:sqflite/sqflite.dart';
+import 'dart:async';
 import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   static Database? _database;
 
   factory DatabaseHelper() => _instance;
+
   DatabaseHelper._internal();
 
   Future<Database> get database async {
@@ -15,57 +17,67 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    String path = join(await getDatabasesPath(), 'business_organizer.db');
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, 'business_organizer.db');
+
     return await openDatabase(
       path,
-      version: 2, // Вдигаме версията заради новите полета
-      onCreate: (db, version) {
-        return db.execute('''
-          CREATE TABLE items(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            content TEXT,
-            imagePath TEXT,
-            isLocalCopy INTEGER, 
-            reminderTime TEXT, 
-            color INTEGER,
-            isCompleted INTEGER
-          )
-        ''');
-      },
-      onUpgrade: (db, oldVersion, newVersion) {
-        // Тъй като ще преинсталирате, това е просто за застраховка
-        if (oldVersion < 2) {
-          db.execute("ALTER TABLE items ADD COLUMN color INTEGER");
-          // Ако името е било различно, тук е мястото за миграция, 
-          // но преинсталацията е най-сигурният вариант.
-        }
-      },
+      version: 1, // Версия 1
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
+  Future _onCreate(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        content TEXT,
+        imagePath TEXT,
+        reminderTime TEXT,
+        color INTEGER,
+        isCompleted INTEGER DEFAULT 0,
+        isLocalCopy INTEGER DEFAULT 0,
+        tags TEXT
+      )
+    ''');
+  }
+
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    // Логика за бъдещи миграции
+  }
+
+  // Вмъкване на запис
   Future<int> insertItem(Map<String, dynamic> row) async {
-    Database db = await database;
-    return await db.insert('items', row);
+    final db = await database;
+    return await db.insert('notes', row);
   }
 
+  // Извличане на всички записи
   Future<List<Map<String, dynamic>>> queryAllRows() async {
-    Database db = await database;
-    return await db.query('items', orderBy: "id DESC");
+    final db = await database;
+    return await db.query('notes', orderBy: "id DESC");
   }
 
-  Future<int> deleteItem(int id) async {
-    Database db = await database; 
-    return await db.delete('items', where: 'id = ?', whereArgs: [id]);
-  }  
-
+  // Обновяване на запис с проверка за ID
   Future<int> updateItem(Map<String, dynamic> row) async {
-    Database db = await database;
-    int id = row['id'];
-    return await db.update('items', row, where: 'id = ?', whereArgs: [id]);
+    final db = await database;
+    int? id = row['id'];
+    // Проверка дали ID съществува, за да не се прави невалидна заявка
+    if (id == null) {
+      print("Опит за обновяване без ID!");
+      return 0;
+    }
+    return await db.update('notes', row, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // Изтриване на запис
+  Future<int> deleteItem(int id) async {
+    final db = await database;
+    return await db.delete('notes', where: 'id = ?', whereArgs: [id]);
   }
 }
-
 // Future<List<Map<String, dynamic>>> getItems() async {
 //   final db = await instance.database;
 //   // Връщаме всички редове от таблица 'items'

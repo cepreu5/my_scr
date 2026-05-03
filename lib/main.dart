@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
-import 'db_helper.dart';
-import 'note_form.dart';
-import 'settings_screen.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:io';
+
+import 'db_helper.dart';
+import 'note_form.dart';
+import 'settings_screen.dart';
+import 'tag_scroll.dart';
+import 'fly_menu.dart'; // Импорт на новото плаващо меню
 
 void main() {
   runApp(const BusinessOrganizerApp());
@@ -39,6 +42,9 @@ class _MainListScreenState extends State<MainListScreen> {
   final dbHelper = DatabaseHelper();
   List<Map<String, dynamic>> _allItems = [];
   List<Map<String, dynamic>> _filteredItems = [];
+  Set<String> _allExistingTags = {}; 
+  List<String> _selectedFilterTags = []; 
+  
   bool _isGridView = false;
   int _appBackgroundColor = Colors.white.value;
   final TextEditingController _searchController = TextEditingController();
@@ -85,6 +91,7 @@ class _MainListScreenState extends State<MainListScreen> {
         'id': null,
         'color': null,
         'isCompleted': 0,
+        'tags': null,
       });
     }
   }
@@ -97,6 +104,7 @@ class _MainListScreenState extends State<MainListScreen> {
       'id': null,
       'color': null,
       'isCompleted': 0,
+      'tags': null,
     });
   }
 
@@ -104,7 +112,26 @@ class _MainListScreenState extends State<MainListScreen> {
     final data = await dbHelper.queryAllRows();
     setState(() {
       _allItems = data;
+      _updateUniqueTags();
       _filterItems(_searchController.text);
+    });
+  }
+
+  void _updateUniqueTags() {
+    final tagsSet = <String>{};
+    for (var item in _allItems) {
+      final String? tagsString = item['tags'];
+      if (tagsString != null && tagsString.isNotEmpty) {
+        final List<String> tagsList = tagsString.split(',');
+        for (var tag in tagsList) {
+          final trimmed = tag.trim();
+          if (trimmed.isNotEmpty) tagsSet.add(trimmed);
+        }
+      }
+    }
+    setState(() {
+      _allExistingTags = tagsSet;
+      _selectedFilterTags.removeWhere((tag) => !tagsSet.contains(tag));
     });
   }
 
@@ -113,7 +140,19 @@ class _MainListScreenState extends State<MainListScreen> {
       _filteredItems = _allItems.where((item) {
         final title = (item['title'] ?? '').toLowerCase();
         final content = (item['content'] ?? '').toLowerCase();
-        return title.contains(query.toLowerCase()) || content.contains(query.toLowerCase());
+        final tagsString = (item['tags'] ?? '').toLowerCase();
+        
+        bool matchesSearch = title.contains(query.toLowerCase()) || 
+                            content.contains(query.toLowerCase()) ||
+                            tagsString.contains(query.toLowerCase());
+
+        bool matchesTags = true;
+        if (_selectedFilterTags.isNotEmpty) {
+          final List<String> noteTags = tagsString.split(',').map((e) => e.trim().toLowerCase()).toList();
+          matchesTags = _selectedFilterTags.every((tag) => noteTags.contains(tag.toLowerCase()));
+        }
+
+        return matchesSearch && matchesTags;
       }).toList();
     });
   }
@@ -125,9 +164,18 @@ class _MainListScreenState extends State<MainListScreen> {
         builder: (context) => NoteFormScreen(
           item: initialData,
           onSaved: _refreshItems,
+          existingTags: _allExistingTags.toList(),
         ),
       ),
     );
+  }
+
+  Future<void> _goToSettings() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SettingsScreen()),
+    );
+    _loadSettings();
   }
 
   Future<void> _toggleComplete(Map<String, dynamic> item) async {
@@ -145,7 +193,7 @@ class _MainListScreenState extends State<MainListScreen> {
       backgroundColor: Color(_appBackgroundColor),
       appBar: AppBar(
         titleSpacing: 0,
-        backgroundColor: Color(_appBackgroundColor).withValues(alpha: 0.9),
+        backgroundColor: Color(_appBackgroundColor).withOpacity(0.9),
         title: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8.0),
           child: TextField(
@@ -155,7 +203,7 @@ class _MainListScreenState extends State<MainListScreen> {
               hintText: 'Търсене...',
               prefixIcon: const Icon(Icons.search),
               filled: true,
-              fillColor: Colors.black.withValues(alpha: 0.05),
+              fillColor: Colors.black.withOpacity(0.05),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(30),
                 borderSide: BorderSide.none,
@@ -167,13 +215,7 @@ class _MainListScreenState extends State<MainListScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SettingsScreen()),
-              );
-              _loadSettings();
-            },
+            onPressed: _goToSettings,
           ),
           IconButton(
             icon: Icon(_isGridView ? Icons.view_list : Icons.grid_view),
@@ -181,11 +223,52 @@ class _MainListScreenState extends State<MainListScreen> {
           ),
         ],
       ),
-      body: _filteredItems.isEmpty
-          ? const Center(child: Text('Няма открити бележки.'))
-          : _isGridView ? _buildGrid() : _buildList(),
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              TagScrollFilter(
+                allTags: _allExistingTags.toList(),
+                selectedTags: _selectedFilterTags,
+                onSelectionChanged: (newList) {
+                  setState(() {
+                    _selectedFilterTags = newList;
+                    _filterItems(_searchController.text);
+                  });
+                },
+              ),
+              Expanded(
+                child: _filteredItems.isEmpty
+                    ? const Center(child: Text('Няма открити бележки.'))
+                    : _isGridView ? _buildGrid() : _buildList(),
+              ),
+            ],
+          ),
+          // Плаващото меню FlyMenu стои върху останалото съдържание
+          FlyMenu(
+            actions: [
+              FlyAction(
+                icon: Icons.add, 
+                onTap: () => _openNoteForm(),
+                label: "Нова бележка"
+              ),
+              FlyAction(
+                icon: Icons.settings, 
+                onTap: _goToSettings,
+                label: "Настройки"
+              ),
+              FlyAction(
+                icon: _isGridView ? Icons.view_list : Icons.grid_view,
+                onTap: () => setState(() => _isGridView = !_isGridView),
+                label: "Изглед"
+              ),
+            ],
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _openNoteForm(),
+        tooltip: 'Нова бележка',
         child: const Icon(Icons.add),
       ),
     );
@@ -199,9 +282,7 @@ class _MainListScreenState extends State<MainListScreen> {
     );
   }
 
-  // Обновен матричен изглед без "дупки" (Masonry-like)
   Widget _buildGrid() {
-    // Разделяме елементите на две колони
     List<Map<String, dynamic>> leftColumn = [];
     List<Map<String, dynamic>> rightColumn = [];
 
@@ -273,8 +354,7 @@ class _MainListScreenState extends State<MainListScreen> {
           const SizedBox(height: 4),
           Text(
             item['content'] ?? '',
-            // Премахваме фиксирания брой редове в грид, за да се разтягат естествено
-            maxLines: isGrid ? 5 : 5, 
+            maxLines: isGrid ? 15 : 5, 
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 13,

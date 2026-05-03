@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'db_helper.dart';
+import 'fly_menu.dart'; // Добавен импорт за плаващото меню
 import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:path_provider/path_provider.dart';
@@ -12,8 +13,14 @@ import 'package:path/path.dart' as p;
 class NoteFormScreen extends StatefulWidget {
   final Map<String, dynamic>? item;
   final VoidCallback onSaved;
+  final List<String> existingTags; // Добавен списък със съществуващи етикети
 
-  const NoteFormScreen({super.key, this.item, required this.onSaved});
+  const NoteFormScreen({
+    super.key, 
+    this.item, 
+    required this.onSaved, 
+    this.existingTags = const []
+  });
 
   @override
   State<NoteFormScreen> createState() => _NoteFormScreenState();
@@ -22,11 +29,14 @@ class NoteFormScreen extends StatefulWidget {
 class _NoteFormScreenState extends State<NoteFormScreen> {
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
+  final _tagController = TextEditingController(); // За добавяне на нов етикет в модала
+  
   String? _imagePath;
   DateTime? _reminderTime;
   Color _selectedColor = Colors.white;
   int _isLocalCopy = 0; 
   bool _shouldCopyLocally = false;
+  List<String> _selectedTags = []; // Избраните етикети за текущата бележка
   
   final dbHelper = DatabaseHelper();
   bool _isEditing = false;
@@ -55,6 +65,11 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
       _isLocalCopy = widget.item!['isLocalCopy'] ?? 0;
       _shouldCopyLocally = _isLocalCopy == 1;
       
+      // Зареждане на етикети
+      if (widget.item!['tags'] != null && widget.item!['tags'].toString().isNotEmpty) {
+        _selectedTags = widget.item!['tags'].toString().split(',').map((e) => e.trim()).toList();
+      }
+
       if (widget.item!['reminderTime'] != null) {
         try {
           _reminderTime = DateTime.parse(widget.item!['reminderTime']);
@@ -87,6 +102,99 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
     }
   }
 
+  // Показва модален прозорец за управление на етикети
+  void _showTagsSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 20, right: 20, top: 20
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("Управление на етикети", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 15),
+                  // Списък със съществуващи
+                  if (widget.existingTags.isNotEmpty) ...[
+                    const Text("Избери от съществуващи:", style: TextStyle(fontSize: 14, color: Colors.grey)),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      children: widget.existingTags.map((tag) {
+                        final isSelected = _selectedTags.contains(tag);
+                        return FilterChip(
+                          label: Text(tag),
+                          selected: isSelected,
+                          onSelected: (val) {
+                            setState(() {
+                              val ? _selectedTags.add(tag) : _selectedTags.remove(tag);
+                            });
+                            setModalState(() {});
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                  // Добавяне на нов
+                  const Text("Добави нов етикет:", style: TextStyle(fontSize: 14, color: Colors.grey)),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _tagController,
+                          decoration: const InputDecoration(hintText: "Име на етикет"),
+                          onSubmitted: (val) {
+                            if (val.trim().isNotEmpty) {
+                              setState(() {
+                                if (!_selectedTags.contains(val.trim())) _selectedTags.add(val.trim());
+                                _tagController.clear();
+                              });
+                              setModalState(() {});
+                            }
+                          },
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle, color: Colors.blue),
+                        onPressed: () {
+                          if (_tagController.text.trim().isNotEmpty) {
+                            setState(() {
+                              String newTag = _tagController.text.trim();
+                              if (!_selectedTags.contains(newTag)) _selectedTags.add(newTag);
+                              _tagController.clear();
+                            });
+                            setModalState(() {});
+                          }
+                        },
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 30),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text("Готово"),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            );
+          }
+        );
+      },
+    );
+  }
+
   Future<String?> _cropImage(String path) async {
     CroppedFile? croppedFile = await ImageCropper().cropImage(
       sourcePath: path,
@@ -98,9 +206,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
           initAspectRatio: CropAspectRatioPreset.original,
           lockAspectRatio: false,
         ),
-        IOSUiSettings(
-          title: 'Изрязване',
-        ),
+        IOSUiSettings(title: 'Изрязване'),
       ],
     );
     return croppedFile?.path;
@@ -213,6 +319,9 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
       }
     }
 
+    // Обединяваме избраните етикети в един стринг
+    final String tagsString = _selectedTags.join(', ');
+
     final Map<String, dynamic> data = {
       'title': _titleController.text.trim(),
       'content': _contentController.text.trim(),
@@ -221,6 +330,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
       'color': _selectedColor.toARGB32(),
       'isCompleted': widget.item?['isCompleted'] ?? 0,
       'isLocalCopy': finalIsLocal,
+      'tags': tagsString, // Записване в БД
     };
 
     try {
@@ -274,87 +384,123 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
             IconButton(icon: const Icon(Icons.save), onPressed: _save),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (_imagePath != null)
-                    GestureDetector(
-                      onTap: _isEditing ? _editExistingImage : _openFullScreenImage,
-                      child: Stack(
-                        children: [
-                          Container(
-                            constraints: const BoxConstraints(maxHeight: 400),
-                            width: double.infinity,
-                            decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: Colors.black12),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.file(File(_imagePath!), fit: BoxFit.contain),
-                            ),
-                          ),
-                          if (_isEditing)
-                            const Positioned(
-                              right: 8, bottom: 8,
-                              child: CircleAvatar(
-                                radius: 18,
-                                backgroundColor: Colors.black54,
-                                child: Icon(Icons.crop, color: Colors.white, size: 20),
-                              ),
-                            ),
-                          if (_isEditing)
-                            Positioned(
-                              left: 8, top: 8,
-                              child: CircleAvatar(
-                                radius: 15, backgroundColor: Colors.black54,
-                                child: IconButton(
-                                  padding: EdgeInsets.zero,
-                                  icon: const Icon(Icons.close, color: Colors.white, size: 18),
-                                  onPressed: () => setState(() { 
-                                    _imagePath = null; 
-                                    _isLocalCopy = 0; 
-                                    _shouldCopyLocally = false;
-                                  }),
+          // Основно съдържание
+          Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_imagePath != null)
+                        GestureDetector(
+                          onTap: _isEditing ? _editExistingImage : _openFullScreenImage,
+                          child: Stack(
+                            children: [
+                              Container(
+                                constraints: const BoxConstraints(maxHeight: 400),
+                                width: double.infinity,
+                                decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: Colors.black12),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.file(File(_imagePath!), fit: BoxFit.contain),
                                 ),
                               ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  const SizedBox(height: 16),
-                  if (_isEditing)
-                    TextField(
-                      controller: _titleController,
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                      decoration: const InputDecoration(hintText: 'Заглавие', border: InputBorder.none),
-                    )
-                  else if (_titleController.text.isNotEmpty)
-                    Text(_titleController.text, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 12),
-                  if (_isEditing)
-                    TextField(
-                      controller: _contentController,
-                      maxLines: null,
-                      style: const TextStyle(fontSize: 18),
-                      decoration: const InputDecoration(hintText: 'Съдържание...', border: InputBorder.none),
-                    )
-                  else
-                    Linkify(
-                      text: _contentController.text,
-                      onOpen: (link) async {
-                        final url = Uri.parse(link.url);
-                        if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
-                      },
-                      style: const TextStyle(fontSize: 18),
-                    ),
-                ],
+                              if (_isEditing)
+                                const Positioned(
+                                  right: 8, bottom: 8,
+                                  child: CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: Colors.black54,
+                                    child: Icon(Icons.crop, color: Colors.white, size: 20),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      if (_isEditing)
+                        TextField(
+                          controller: _titleController,
+                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                          decoration: const InputDecoration(hintText: 'Заглавие', border: InputBorder.none),
+                        )
+                      else if (_titleController.text.isNotEmpty)
+                        Text(_titleController.text, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                      
+                      // Показване на етикетите
+                      if (_selectedTags.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8.0),
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 0,
+                            children: _selectedTags.map((tag) => Chip(
+                              label: Text(tag, style: const TextStyle(fontSize: 12)),
+                              padding: EdgeInsets.zero,
+                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              onDeleted: _isEditing ? () => setState(() => _selectedTags.remove(tag)) : null,
+                            )).toList(),
+                          ),
+                        ),
+
+                      const SizedBox(height: 12),
+                      if (_isEditing)
+                        TextField(
+                          controller: _contentController,
+                          maxLines: null,
+                          style: const TextStyle(fontSize: 18),
+                          decoration: const InputDecoration(hintText: 'Съдържание...', border: InputBorder.none),
+                        )
+                      else
+                        Linkify(
+                          text: _contentController.text,
+                          onOpen: (link) async {
+                            final url = Uri.parse(link.url);
+                            if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
+                          },
+                          style: const TextStyle(fontSize: 18),
+                        ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+              if (_isEditing) _buildBottomTools(reminderText),
+            ],
           ),
-          if (_isEditing) _buildBottomTools(reminderText),
+
+          // Плаващо меню (FlyMenu)
+          FlyMenu(
+            actions: [
+              if (_isEditing) FlyAction(
+                icon: Icons.save, 
+                onTap: _save,
+                label: "Запази"
+              ),
+              if (!_isEditing) FlyAction(
+                icon: Icons.edit, 
+                onTap: () => setState(() => _isEditing = true),
+                label: "Редактирай"
+              ),
+              if (widget.item?['id'] != null) FlyAction(
+                icon: Icons.delete, 
+                onTap: () async {
+                  await dbHelper.deleteItem(widget.item!['id']);
+                  widget.onSaved();
+                  if (mounted) Navigator.pop(context);
+                },
+                label: "Изтрий"
+              ),
+              FlyAction(
+                icon: Icons.arrow_back, 
+                onTap: () => Navigator.pop(context),
+                label: "Назад"
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -364,7 +510,7 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.8), 
+        color: Colors.white.withOpacity(0.8), 
         border: const Border(top: BorderSide(color: Colors.black12))
       ),
       child: Column(
@@ -391,24 +537,11 @@ class _NoteFormScreenState extends State<NoteFormScreen> {
           
           const Divider(),
 
-          if (_imagePath != null)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text("Копирай снимката локално", style: TextStyle(fontSize: 14)),
-                Switch(
-                  value: _shouldCopyLocally,
-                  onChanged: (val) {
-                    setState(() => _shouldCopyLocally = val);
-                  },
-                ),
-              ],
-            ),
-
           Row(
             children: [
               IconButton(icon: const Icon(Icons.photo_library), onPressed: _pickFromGallery, tooltip: 'Галерия'),
               IconButton(icon: const Icon(Icons.camera_alt), onPressed: _pickFromCamera, tooltip: 'Камера'),
+              IconButton(icon: const Icon(Icons.label_outline), onPressed: _showTagsSheet, tooltip: 'Етикети'),
               const Spacer(),
               TextButton.icon(
                 onPressed: _pickReminderTime,
